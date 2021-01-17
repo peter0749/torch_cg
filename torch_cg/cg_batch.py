@@ -75,12 +75,16 @@ def cg_batch(A_bmm, B, M_bmm=None, X0=None, rtol=1e-3, atol=0., maxiter=None, ve
             Z_k1 = Z_k
             X_k1 = X_k
             denominator = (R_k2 * Z_k2).sum(1)
-            denominator[denominator == 0] = 1e-8
+            if denominator.is_sparse:
+                denominator = denominator.to_dense()
+            denominator[denominator == 0] = 1e-6
             beta = (R_k1 * Z_k1).sum(1) / denominator
             P_k = Z_k1 + beta.unsqueeze(1) * P_k1
 
         denominator = (P_k * A_bmm(P_k)).sum(1)
-        denominator[denominator == 0] = 1e-8
+        if denominator.is_sparse:
+            denominator = denominator.to_dense()
+        denominator[denominator == 0] = 1e-6
         alpha = (R_k1 * Z_k1).sum(1) / denominator
         X_k = X_k1 + alpha.unsqueeze(1) * P_k
         R_k = R_k1 - alpha.unsqueeze(1) * A_bmm(P_k)
@@ -125,13 +129,17 @@ class CG(torch.autograd.Function):
         self.atol = atol
         self.maxiter = maxiter
         self.verbose = verbose
+        self.converged = False
 
     def forward(self, B, X0=None):
-        X, _ = cg_batch(self.A_bmm, B, M_bmm=self.M_bmm, X0=X0, rtol=self.rtol,
+        X, info = cg_batch(self.A_bmm, B, M_bmm=self.M_bmm, X0=X0, rtol=self.rtol,
                      atol=self.atol, maxiter=self.maxiter, verbose=self.verbose)
+        if info['optimal']:
+            self.converged = True
         return X
 
     def backward(self, dX):
-        dB, _ = cg_batch(self.A_bmm, dX, M_bmm=self.M_bmm, rtol=self.rtol,
+        dB, info = cg_batch(self.A_bmm, dX, M_bmm=self.M_bmm, rtol=self.rtol,
                       atol=self.atol, maxiter=self.maxiter, verbose=self.verbose)
+        #assert info['optimal']
         return dB
